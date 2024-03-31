@@ -55,6 +55,8 @@ class Config:
     norm_class_name: Literal["LayerNorm", "RMSNorm"] = "LayerNorm"
     norm_eps: float = 1e-5
     mlp_class_name: Literal["GptNeoxMLP", "LLaMAMLP", "GemmaMLP", "LLaMAMoE"] = "GptNeoxMLP"
+    # Allow injecting externally defined Linear layers.
+    _linear_class: Literal["nn.Linear", "ClusterFriendlyLinear"] = "Linear"
     gelu_approximate: str = "none"
     intermediate_size: Optional[int] = None
     rope_condense_ratio: int = 1
@@ -128,6 +130,11 @@ class Config:
     def mlp_class(self) -> Type:
         # `self.mlp_class_name` cannot be the type to keep the config serializable
         return getattr(litgpt.model, self.mlp_class_name)
+
+    @property
+    def linear_class(self) -> Type:
+        # `self._linear_class` cannot be the type to keep the config json serializable
+        return getattr(litgpt.model, self._linear_class)
 
     @property
     def norm_class(self) -> Type:

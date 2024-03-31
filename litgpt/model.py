@@ -192,11 +192,30 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config: Config) -> None:
         super().__init__()
         shape = (config.n_head + 2 * config.n_query_groups) * config.head_size
+
+        # Original lit-gpt.
         # key, query, value projections for all heads, but in a batch
-        self.attn = nn.Linear(config.n_embd, shape, bias=config.bias)
+        # self.attn = config._linear_class(config.n_embd, shape, bias=config.bias)
+
+        # Simple MHA with separate projections.
+        self.q_proj = config._linear_class(config.n_embd, config.n_embd, bias=config.bias)
+        self.k_proj = config._linear_class(config.n_embd, config.n_embd, bias=config.bias)
+        self.v_proj = config._linear_class(config.n_embd, config.n_embd, bias=config.bias)
+
+        # MQA + GQA with separate projections. Works for Gemma but I don't think it is totally correct.
+        # assemble into a number of query groups to support MHA, MQA and GQA together (see `config.n_query_groups`)
+        # assert config.n_query_groups in [1, config.n_head], f"n_query_groups={config.n_query_groups} not supported"
+        # q_per_kv = config.n_head // config.n_query_groups # gemma 8 / 1
+        # self.q_proj = config._linear_class(config.n_embd, config.head_size * q_per_kv, bias=config.bias)
+        # self.k_proj = config._linear_class(config.n_embd, config.head_size * config.n_query_groups, bias=config.bias)
+        # self.v_proj = config._linear_class(config.n_embd, config.head_size * config.n_query_groups, bias=config.bias)
+        # print("q_proj.shape", self.q_proj.weight.shape)
+        # print("k_proj.shape", self.k_proj.weight.shape)
+        # print("v_proj.shape", self.v_proj.weight.shape)
+
         # output projection
         # if `head_size` is explicitly specified in the config, `n_emd` might not be equal to `head_size * n_head`
-        self.proj = nn.Linear(config.head_size * config.n_head, config.n_embd, bias=config.bias)
+        self.proj = config._linear_class(config.head_size * config.n_head, config.n_embd, bias=config.bias)
         # disabled by default
         self.kv_cache: Optional[KVCache] = None
 
@@ -212,7 +231,8 @@ class CausalSelfAttention(nn.Module):
     ) -> torch.Tensor:
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
 
-        qkv = self.attn(x)
+        # qkv = self.attn(x)
+        qkv = torch.cat((self.q_proj(x), self.k_proj(x), self.v_proj(x)), dim=-1)
 
         # assemble into a number of query groups to support MHA, MQA and GQA together (see `config.n_query_groups`)
         q_per_kv = self.config.n_head // self.config.n_query_groups
@@ -287,8 +307,8 @@ class CausalSelfAttention(nn.Module):
 class GptNeoxMLP(nn.Module):
     def __init__(self, config: Config) -> None:
         super().__init__()
-        self.fc = nn.Linear(config.n_embd, config.intermediate_size, bias=config.bias)
-        self.proj = nn.Linear(config.intermediate_size, config.n_embd, bias=config.bias)
+        self.fc = config._linear_class(config.n_embd, config.intermediate_size, bias=config.bias)
+        self.proj = config._linear_class(config.intermediate_size, config.n_embd, bias=config.bias)
 
         self.config = config
 
@@ -301,9 +321,9 @@ class GptNeoxMLP(nn.Module):
 class LLaMAMLP(nn.Module):
     def __init__(self, config: Config) -> None:
         super().__init__()
-        self.fc_1 = nn.Linear(config.n_embd, config.intermediate_size, bias=config.bias)
-        self.fc_2 = nn.Linear(config.n_embd, config.intermediate_size, bias=config.bias)
-        self.proj = nn.Linear(config.intermediate_size, config.n_embd, bias=config.bias)
+        self.fc_1 = config._linear_class(config.n_embd, config.intermediate_size, bias=config.bias)
+        self.fc_2 = config._linear_class(config.n_embd, config.intermediate_size, bias=config.bias)
+        self.proj = config._linear_class(config.intermediate_size, config.n_embd, bias=config.bias)
 
         self.config = config
 
@@ -325,7 +345,7 @@ class GemmaMLP(LLaMAMLP):
 class LLaMAMoE(nn.Module):
     def __init__(self, config: Config) -> None:
         super().__init__()
-        self.gate = nn.Linear(config.n_embd, config.n_expert, bias=False)
+        self.gate = config._linear_class(config.n_embd, config.n_expert, bias=False)
         self.experts = nn.ModuleList(LLaMAMLP(config) for _ in range(config.n_expert))
 
         self.config = config
