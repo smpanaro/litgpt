@@ -14,6 +14,8 @@ For the more visually inclined, the new rotation matrix is R<sub>5</sub> in this
 <img width="1515" alt="spinquant-rope" src="https://github.com/user-attachments/assets/32716cbd-6702-425a-a595-811735c023c3" />
 <sub>Original image from <a href="https://github.com/facebookresearch/SpinQuant">SpinQuant</a>. Modified to add R<sub>5</sub>.</sub>
 
+&nbsp;
+
 Try it:
 
 ```shell
