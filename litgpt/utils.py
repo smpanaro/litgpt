@@ -370,6 +370,8 @@ def get_default_supported_precision(training: bool) -> str:
             return "bf16-mixed" if training else "bf16-true"
         else:
             return "16-mixed" if training else "16-true"
+    elif torch.backends.mps.is_available():
+        return "16-mixed" if training else "16-true"
     return "bf16-mixed" if training else "bf16-true"
 
 

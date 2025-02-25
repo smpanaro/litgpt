@@ -41,6 +41,9 @@ class GPT(nn.Module):
         self.mask_cache: Optional[torch.Tensor] = None
         self.max_seq_length = self.config.block_size
 
+        # Attention head rotation angles.
+        self.phis: Optional[torch.Tensor] = None
+
     @property
     def max_seq_length(self) -> int:
         return self._max_seq_length
@@ -69,6 +72,47 @@ class GPT(nn.Module):
         # if the kv cache is expected
         if self.mask_cache is not None and self.mask_cache.shape[-1] < value:
             print(f"Warning: KV cache has length {self.mask_cache.shape[-1]} < {value} = max_seq_length. Call 'set_kv_cache' before doing any forwards!")
+
+    def rotate_attention_heads(self) -> None:
+        """
+        Apply a random rotation to all attention heads.
+        """
+        assert self.phis is None, "Attention heads have already been rotated."
+
+        device=self.lm_head.weight.device
+        n_head, head_size, n_query_groups = self.config.n_head, self.config.head_size, self.config.n_query_groups
+        head_size_half = head_size // 2
+
+        # Rh is the random rotation shared by all attention heads.
+        Rh = torch.zeros(head_size, head_size, device="cpu", dtype=torch.double)
+        phis = [torch.rand(1).item() * 2 * math.pi for _ in range(head_size_half)]
+        for i in range(head_size_half):
+            c, s = math.cos(phis[i]), math.sin(phis[i])
+            # Match the position of the non-zero entries in the RoPE rotation matrix.
+            Rh[i, i] = c
+            Rh[i, i+head_size_half] = -s
+            Rh[i+head_size_half, i] = s
+            Rh[i+head_size_half, i+head_size_half] = c
+
+        self.phis = torch.tensor(phis, device=device, dtype=torch.float32)
+        self.reset_parameters() # Re-compute RoPE cache.
+
+        # Rotate each attention head's weights by Rh.
+        Rq = torch.block_diag(*[Rh] * n_head)
+        Rk = torch.block_diag(*[Rh] * n_query_groups)
+        query_size = n_head * head_size
+        key_size = value_size = n_query_groups * head_size
+        for l in self.transformer.h:
+            q, k, v = l.attn.qkv.weight.to(Rh.device).split((query_size, key_size, value_size))
+            q = (Rq.T @ q.double()).to(v.dtype)
+            k = (Rk.T @ k.double()).to(v.dtype)
+            l.attn.qkv.weight.data = torch.cat((q, k, v)).to(device)
+
+            if l.attn.qkv.bias is not None:
+                q_bias, k_bias, v_bias = l.attn.qkv.bias.to(Rh.device).split((query_size, key_size, value_size))
+                q_bias = (Rq.T @ q_bias.double()).to(v_bias.dtype)
+                k_bias = (Rk.T @ k_bias.double()).to(v_bias.dtype)
+                l.attn.qkv.bias.data = torch.cat((q_bias, k_bias, v_bias)).to(device)
 
     def reset_parameters(self) -> None:
         # Trigger resetting the rope-cache
@@ -213,6 +257,7 @@ class GPT(nn.Module):
             condense_ratio=self.config.rope_condense_ratio,
             base=self.config.rope_base,
             extra_config=extra_config,
+            phis=self.phis if hasattr(self, 'phis') else None,
         )
 
     def set_kv_cache(
@@ -591,6 +636,7 @@ def build_rope_cache(
     base: int = 10000,
     condense_ratio: int = 1,
     extra_config: Optional[dict] = None,
+    phis: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Enhanced Transformer with Rotary Position Embedding.
@@ -631,6 +677,11 @@ def build_rope_cache(
 
     # Calculate the product of position index and $\theta_i$
     idx_theta = torch.outer(seq_idx, theta).repeat(1, 2)
+
+    if phis is not None:
+        # Undo the attention head rotation.
+        idx_theta = idx_theta + torch.outer(torch.ones_like(seq_idx), phis).repeat(1, 2)
+
     # If `n_elem` is odd, the final dimension of `idx_theta` has size
     # `n_elem + 1`, so need to cut something off.
     # Due to a current bug in Hugging Face, in the case `n_elem == 1`, we leave

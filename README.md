@@ -1,5 +1,21 @@
-<div align="center">
+# RoPE Rotation Fusion
 
+> [!NOTE]
+> This method is not lit-gpt specific. It only uses it as a simple base for demonstration.
+
+Recent papers such as [SpinQuant](https://github.com/facebookresearch/SpinQuant) and [QuaRot](https://github.com/spcl/QuaRot/tree/main) have explored multiplying LLM weights by rotation matrices to reduce weight and activation outliers. These are then fused into the weights to offer zero inference-time overhead.
+
+This branch shows another opportunity to fuse a rotation matrix into the Query and Key projections. This rotation is un-rotated by modifying the angles in the RoPE transform that occurs afterwards.
+
+Unlike QuaRot and SpinQuant, this rotation matrix is more constrained -- it is still random, but not a Hadamard and it must match the structure of the RoPE rotation matrix.
+
+For the more visually inclined, the new rotation matrix is R<sub>5</sub> in this diagram:
+
+
+---
+
+
+<div align="center">
 
 # ⚡ LitGPT
 
