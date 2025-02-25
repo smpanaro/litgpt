@@ -14,6 +14,16 @@ For the more visually inclined, the new rotation matrix is R<sub>5</sub> in this
 <img width="1515" alt="spinquant-rope" src="https://github.com/user-attachments/assets/32716cbd-6702-425a-a595-811735c023c3" />
 <sub>Original image from <a href="https://github.com/facebookresearch/SpinQuant">SpinQuant</a>. Modified to add R<sub>5</sub>.</sub>
 
+Try it:
+
+```shell
+❯ python run_rope_fusion.py
+Original Response: The third word in this sentence is "word".
+Rotated model.
+Max difference between original model and rotated model QKV weight (should be > 0): 2.3515625
+Rotated Response: The third word in this sentence is "word".
+```
+
 ---
 
 
